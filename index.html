@@ -61,11 +61,44 @@
     .footbrand{font-weight:800;margin-top:14px}.footnote{font-size:11px;color:var(--muted);margin-top:5px}
     @media(max-width:540px){.grid{grid-template-columns:1fr}.full{grid-column:auto}.choices{grid-template-columns:1fr 1fr}form{padding:18px 14px;margin:0 3px}.logo{width:108px;height:108px}}
     @media(max-width:360px){.choices{grid-template-columns:1fr}}
+
+    .admin-tools{display:flex;justify-content:flex-end;margin:0 5px 12px}
+    .admin-toggle{background:var(--ink);color:var(--paper);border:0;padding:10px 16px;font-weight:800;letter-spacing:.5px;cursor:pointer;border-radius:4px}
+    .admin-panel{display:none;background:var(--paper);border:2px solid var(--green);padding:18px;margin:0 5px 18px;box-shadow:5px 5px 0 #342a21}
+    .admin-panel.show{display:block}.admin-panel h2{margin-bottom:12px}
+    .admin-login-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .admin-panel input{width:100%;padding:11px;border:1px solid #9b8d78;background:#fff;font:inherit;border-radius:3px}
+    .admin-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .admin-actions button{border:0;padding:10px 15px;background:var(--green);color:white;font-weight:800;cursor:pointer;border-radius:3px}
+    .admin-actions .secondary{background:#655b50}.admin-message{font-size:12px;margin-top:10px;white-space:pre-wrap}
+    .admin-dashboard{display:none;margin-top:18px}.admin-dashboard.show{display:block}
+    .admin-table-wrap{overflow-x:auto;margin-top:12px}
+    .admin-table{border-collapse:collapse;width:100%;font-size:12px;background:#fff}
+    .admin-table th,.admin-table td{padding:8px;border:1px solid #d7cbb8;text-align:left;vertical-align:top;white-space:normal}
+    .admin-table th{background:#e8eddf;color:#173d2b;position:sticky;top:0}
+    .admin-count{font-weight:800;color:var(--green);margin-top:8px}
+    @media(max-width:560px){.admin-login-grid{grid-template-columns:1fr}.admin-table{min-width:850px}}
+
   </style>
 </head>
 <body>
 <div class="topline"></div>
 <div class="wrap">
+  <div class="admin-tools"><button class="admin-toggle" id="adminToggle" type="button">ADMIN LOGIN</button></div>
+  <section class="admin-panel" id="adminPanel" aria-label="Admin login">
+    <h2>Admin Login</h2>
+    <div class="admin-login-grid">
+      <div><label for="adminEmail">Username / Email</label><input id="adminEmail" type="email" value="sadamhussain.contact@gmail.com" autocomplete="username"></div>
+      <div><label for="adminPassword">Password</label><input id="adminPassword" type="password" autocomplete="current-password" placeholder="Enter admin password"></div>
+    </div>
+    <div class="admin-actions"><button id="adminLoginBtn" type="button">LOGIN</button><button id="adminLogoutBtn" class="secondary" type="button" style="display:none">LOG OUT</button><button id="adminCloseBtn" class="secondary" type="button">CLOSE</button></div>
+    <div class="admin-message" id="adminMessage" role="status" aria-live="polite"></div>
+    <div class="admin-dashboard" id="adminDashboard">
+      <h2>Registered Volunteers</h2><div class="admin-count" id="adminCount"></div>
+      <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Date</th><th>Name</th><th>Phone</th><th>DOB</th><th>Email</th><th>Instagram</th><th>District</th><th>Taluk</th><th>Village</th><th>Skills</th></tr></thead><tbody id="adminRows"></tbody></table></div>
+      <div class="admin-actions"><button id="refreshAdminBtn" type="button">REFRESH DATA</button></div>
+    </div>
+  </section>
   <header>
     <div class="language-switch" aria-label="Choose language">
       <button type="button" id="langEn" class="active" onclick="setLanguage('en')">English</button>
@@ -374,6 +407,54 @@ document.getElementById('regForm').addEventListener('submit', e => {
     btn.disabled=false;btn.textContent=I18N[currentLanguage].submit;
   });
 });
+
+
+// Admin dashboard: Supabase Auth password login. No password is stored in this HTML.
+const CJP_SUPABASE_URL = 'https://uztmpduexsjvegphnrqr.supabase.co';
+const CJP_SUPABASE_KEY = 'sb_publishable_dnqb1BZnmMaJ2GiixIT0Vg_tasbn7m8';
+let cjpAdminAccessToken = null;
+const adminPanel = document.getElementById('adminPanel');
+const adminMessage = document.getElementById('adminMessage');
+const adminDashboard = document.getElementById('adminDashboard');
+function adminMsg(message, isError=false){adminMessage.textContent=message;adminMessage.style.color=isError?'#a32920':'#17613e';}
+function safeCell(value){return String(value ?? '').replace(/[&<>"']/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+document.getElementById('adminToggle').addEventListener('click',()=>adminPanel.classList.toggle('show'));
+document.getElementById('adminCloseBtn').addEventListener('click',()=>adminPanel.classList.remove('show'));
+document.getElementById('adminLoginBtn').addEventListener('click', async ()=>{
+  const email=document.getElementById('adminEmail').value.trim();
+  const password=document.getElementById('adminPassword').value;
+  if(!email || !password){adminMsg('Enter the admin email and password.',true);return;}
+  const btn=document.getElementById('adminLoginBtn');btn.disabled=true;btn.textContent='SIGNING IN...';adminMsg('Signing in...');
+  try{
+    const response=await fetch(CJP_SUPABASE_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'apikey':CJP_SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    const result=await response.json();
+    if(!response.ok || !result.access_token) throw new Error(result.msg || result.message || result.error_description || 'Login failed. Check the email and password.');
+    cjpAdminAccessToken=result.access_token;
+    document.getElementById('adminPassword').value='';
+    document.getElementById('adminLogoutBtn').style.display='inline-block';
+    document.getElementById('adminLoginBtn').style.display='none';
+    adminMsg('Login successful. Loading registrations...');
+    await loadCjpRegistrations();
+  }catch(error){cjpAdminAccessToken=null;adminDashboard.classList.remove('show');adminMsg(error.message || 'Unable to sign in.',true);}
+  finally{btn.disabled=false;btn.textContent='LOGIN';}
+});
+async function loadCjpRegistrations(){
+  if(!cjpAdminAccessToken) return;
+  const response=await fetch(CJP_SUPABASE_URL+'/rest/v1/cjp_registrations?select=id,created_at,full_name,phone,dob,email,instagram,district,taluk,village,skills&order=created_at.desc',{headers:{'apikey':CJP_SUPABASE_KEY,'Authorization':'Bearer '+cjpAdminAccessToken}});
+  if(!response.ok){const detail=await response.text();throw new Error('Could not load registrations. Check the admin SELECT policy in Supabase. '+detail);}
+  const rows=await response.json();
+  document.getElementById('adminCount').textContent='Total registrations: '+rows.length;
+  document.getElementById('adminRows').innerHTML=rows.map(row=>'<tr>'+[
+    row.created_at?new Date(row.created_at).toLocaleString():'',row.full_name,row.phone,row.dob,row.email,row.instagram,row.district,row.taluk,row.village,Array.isArray(row.skills)?row.skills.join(', '):row.skills
+  ].map(value=>'<td>'+safeCell(value)+'</td>').join('')+'</tr>').join('');
+  adminDashboard.classList.add('show');adminMsg('Registrations loaded successfully.');
+}
+document.getElementById('refreshAdminBtn').addEventListener('click',async()=>{try{adminMsg('Refreshing...');await loadCjpRegistrations();}catch(error){adminMsg(error.message,true);}});
+document.getElementById('adminLogoutBtn').addEventListener('click',()=>{
+  cjpAdminAccessToken=null;adminDashboard.classList.remove('show');document.getElementById('adminRows').innerHTML='';
+  document.getElementById('adminLogoutBtn').style.display='none';document.getElementById('adminLoginBtn').style.display='inline-block';adminMsg('Logged out.');
+});
+
 </script>
 </body>
-</html>
+      </html>
